@@ -8,41 +8,68 @@ on:
 jobs:
   comprehensive-scan:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write # Obligatorio para subir a la pestaña Security
+      actions: read
+      contents: read
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Necesario para que TruffleHog vea el historial
+          fetch-depth: 0
 
-      # 1. SEMGREP
+      # 1. SEMGREP con exportación SARIF
       - name: Semgrep OSS Scan
         run: |
           docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep \
           semgrep scan --config auto --sarif --output report-semgrep.sarif
         continue-on-error: true
 
-      # 2. TRIVY (FS)
+      # 2. TRIVY con exportación SARIF (Vulnerabilidades en dependencias)
       - name: Trivy FS Scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
         continue-on-error: true
 
-      # 3. HORUSEC (Corregido el error 127)
+      # 3. HORUSEC con exportación SARIF (Análisis multi-lenguaje)
       - name: Horusec Scan
         run: |
           curl -fsSL https://raw.githubusercontent.com/ZupIT/horusec/main/deployments/scripts/install.sh | bash -s latest
-          horusec start -p="./" -e="true" -o="text"
+          horusec start -p="./" -e="true" -o="sarif" -O="./horusec-results.sarif"
         continue-on-error: true
 
-      # 4. TRUFFLEHOG (Ajustado para evitar error de Base/Head)
+      # 4. SUBIDA CONSOLIDADA A GITHUB SECURITY
+      - name: Upload Semgrep Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: report-semgrep.sarif
+          category: semgrep
+
+      - name: Upload Trivy Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Upload Horusec Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: horusec-results.sarif
+          category: horusec
+
+      # 5. TRUFFLEHOG (Los secretos no usan SARIF, se ven en el log de la Action)
       - name: TruffleHog OSS
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: "" # Al dejarlo vacío escanea todo el repo, no solo el diff
+          base: ""
           extra_args: --only-verified
         continue-on-error: true
