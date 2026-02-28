@@ -14,31 +14,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 1. SEMGREP (Análisis de Código y Lógica)
+      # 1. SEMGREP: Escaneo exhaustivo de lógica PHP/JS/SQL
       - name: Semgrep OSS Scan
         run: |
           docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep \
           semgrep scan --config auto --sarif --output report-semgrep.sarif
         continue-on-error: true
 
-      # 2. TRIVY (Busca vulnerabilidades en dependencias, Docker y Misconfigurations)
-      - name: Trivy Scan (FS & Config)
-        uses: aquasecurity/trivy-action@master
+      # 2. TRIVY: Escaneo de FileSystem (Librerías/SCA)
+      - name: Trivy FS Scan (Vulnerabilities)
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          scan-type: 'fs,config'
-          hide-progress: false
+          scan-type: 'fs'
+          scan-ref: '.'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+        continue-on-error: true
 
-      # 3. HORUSEC (Multi-motor: busca en PHP, JS, Shell, Dockerfiles, etc.)
+      # 3. TRIVY: Escaneo de Config (Docker/K8s/Misconfigurations)
+      - name: Trivy Config Scan (Misconfigurations)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      # 4. HORUSEC: Análisis multi-lenguaje (Excelente para PHP)
       - name: Horusec Scan
         run: |
           curl -fsSL https://raw.githubusercontent.com/ZupIT/horusec/main/deployments/scripts/install.sh | bash -s latest
-          horusec start -p="./" -e="true" -o="text"
+          ./horusec start -p="./" -e="true" -o="text"
         continue-on-error: true
 
-      # 4. TRUFFLEHOG (Búsqueda de credenciales y secretos expuestos)
+      # 5. TRUFFLEHOG: Búsqueda de Secretos/Keys
       - name: TruffleHog OSS
         uses: trufflesecurity/trufflehog@main
         with:
